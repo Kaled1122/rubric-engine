@@ -70,6 +70,10 @@ def store_text_in_faiss(text, lesson_title):
 
     print(f"✅ Added to FAISS index: {lesson_title} (length={len(text)} chars)")
 
+@app.route("/", methods=["GET"])
+def home():
+    return jsonify({"status": "Rubric engine running ✅"}), 200
+
 # ------------------------------------------------------------
 # ✅ File Upload Endpoint (Frontend confirmation)
 # ------------------------------------------------------------
