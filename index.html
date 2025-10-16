@@ -9,6 +9,7 @@
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
     .rubric-table th, .rubric-table td { border: 1px solid #e2e8f0; padding: 8px; vertical-align: top; }
     .rubric-table th { background-color: #e0f2fe; font-weight: 600; }
+    .fade-out { transition: opacity 0.5s ease-out; opacity: 0; }
   </style>
 </head>
 
@@ -35,9 +36,12 @@
 
     <!-- FILE UPLOAD -->
     <label class="block font-semibold text-blue-700 mb-2">Upload Lesson File</label>
-    <input type="file" id="lessonFile" class="w-full border rounded p-2 mb-4" />
+    <input type="file" id="lessonFile" class="w-full border rounded p-2 mb-2" />
+    <div id="uploadBanner" class="hidden mt-3 p-3 rounded-lg text-white bg-green-600 text-center font-medium">
+      ✅ File uploaded successfully!
+    </div>
 
-    <div class="text-center text-gray-400 mb-4">or</div>
+    <div class="text-center text-gray-400 mb-4 mt-4">or</div>
 
     <!-- PASTE LESSON TEXT -->
     <label class="block font-semibold text-blue-700 mb-2">Paste Lesson Text</label>
@@ -75,8 +79,9 @@
 
   <!-- SCRIPT -->
   <script>
-    // ✅ Flask backend endpoint
-    const BACKEND_URL = "https://rubric-engine.onrender.com/generate";
+    // ✅ Backend endpoints
+    const UPLOAD_URL = "https://rubric-engine.onrender.com/upload";
+    const GENERATE_URL = "https://rubric-engine.onrender.com/generate";
 
     const btn = document.getElementById("generateBtn");
     const fileInput = document.getElementById("lessonFile");
@@ -90,36 +95,34 @@
     const questionList = document.getElementById("questionList");
     const output = document.getElementById("outputText");
     const copyBtn = document.getElementById("copyBtn");
+    const uploadBanner = document.getElementById("uploadBanner");
 
-    // 🎛 Helper: render rubric + questions
+    // 🎛 Render rubric + questions
     function renderOutput(jsonText, stream) {
       try {
         const data = JSON.parse(jsonText);
         const rubric = data.rubric || [];
         const questions = data.questions || [];
 
-        // ---- Title + color tone ----
         const titleColor = stream === "AW" ? "text-red-700" : "text-blue-700";
         rubricTitle.className = `text-2xl font-bold mb-4 ${titleColor}`;
-        rubricTitle.textContent = stream === "AW"
-          ? "Academic Wing (AW) Technical Rubric"
-          : "School of English Language (SEL) Rubric";
+        rubricTitle.textContent =
+          stream === "AW"
+            ? "Academic Wing (AW) Technical Rubric"
+            : "School of English Language (SEL) Rubric";
 
-        // ---- Rubric Table ----
-        const table = `
+        // Rubric Table
+        rubricTableDiv.innerHTML = `
           <table class="rubric-table w-full text-sm border-collapse">
             <thead>
               <tr>
-                <th>Domain</th>
-                <th>Criterion</th>
-                <th>4</th>
-                <th>3</th>
-                <th>2</th>
-                <th>1</th>
+                <th>Domain</th><th>Criterion</th><th>4</th><th>3</th><th>2</th><th>1</th>
               </tr>
             </thead>
             <tbody>
-              ${rubric.map(r => `
+              ${rubric
+                .map(
+                  (r) => `
                 <tr>
                   <td class="font-semibold">${r.domain}</td>
                   <td>${r.criterion}</td>
@@ -127,42 +130,80 @@
                   <td>${r["3"]}</td>
                   <td>${r["2"]}</td>
                   <td>${r["1"]}</td>
-                </tr>`).join("")}
+                </tr>`
+                )
+                .join("")}
             </tbody>
           </table>`;
-        rubricTableDiv.innerHTML = table;
 
-        // ---- Questions ----
-        questionList.innerHTML = questions.map(q => `
+        // Questions
+        questionList.innerHTML = questions
+          .map(
+            (q) => `
           <div class="border rounded-lg p-4 bg-gray-50">
             <p class="font-semibold text-blue-700">${q.domain}</p>
             <p class="mt-1">${q.stem}</p>
             <ul class="list-disc ml-6 mt-2">
-              ${q.options.map(opt => `<li>${opt}</li>`).join("")}
+              ${q.options.map((opt) => `<li>${opt}</li>`).join("")}
             </ul>
             <p class="mt-2 text-green-700 font-semibold">Answer: ${q.answer}</p>
-          </div>`).join("");
-
+          </div>`
+          )
+          .join("");
       } catch (err) {
-        rubricTableDiv.innerHTML = "<p class='text-red-600'>⚠️ Could not parse AI output.</p>";
+        rubricTableDiv.innerHTML =
+          "<p class='text-red-600'>⚠️ Could not parse AI output.</p>";
         console.error(err);
       }
     }
 
-    // 🎯 Main Button Action
+    // ✅ Auto-upload when file selected
+    fileInput.addEventListener("change", async () => {
+      if (!fileInput.files.length) return;
+      uploadBanner.classList.add("hidden");
+      const formData = new FormData();
+      formData.append("lessonFile", fileInput.files[0]);
+
+      try {
+        const res = await fetch(UPLOAD_URL, { method: "POST", body: formData });
+        const data = await res.json();
+        if (res.ok) {
+          uploadBanner.textContent =
+            data.message || "✅ File uploaded successfully!";
+          uploadBanner.classList.remove("hidden");
+          // Fade out after 3 seconds
+          setTimeout(() => {
+            uploadBanner.classList.add("fade-out");
+            setTimeout(() => uploadBanner.classList.add("hidden"), 1000);
+          }, 3000);
+        } else {
+          uploadBanner.textContent =
+            "⚠️ " + (data.error || "Upload failed");
+          uploadBanner.classList.remove("hidden");
+          uploadBanner.classList.replace("bg-green-600", "bg-red-600");
+        }
+      } catch (err) {
+        uploadBanner.textContent = "⚠️ Upload failed: " + err.message;
+        uploadBanner.classList.remove("hidden");
+        uploadBanner.classList.replace("bg-green-600", "bg-red-600");
+      }
+    });
+
+    // 🎯 Generate Rubric Button
     btn.onclick = async () => {
       loading.classList.remove("hidden");
       resultDiv.classList.add("hidden");
 
       const formData = new FormData();
-      if (fileInput.files.length) formData.append("lessonFile", fileInput.files[0]);
+      if (fileInput.files.length)
+        formData.append("lessonFile", fileInput.files[0]);
       else formData.append("lessonText", textInput.value);
 
       formData.append("stream", streamInput.value);
       formData.append("lessonTitle", titleInput.value);
 
       try {
-        const res = await fetch(BACKEND_URL, { method: "POST", body: formData });
+        const res = await fetch(GENERATE_URL, { method: "POST", body: formData });
         const data = await res.json();
 
         loading.classList.add("hidden");
@@ -172,9 +213,9 @@
           output.textContent = data.result;
           renderOutput(data.result, streamInput.value);
         } else {
-          output.textContent = "⚠️ Error: " + (data.error || "No result returned.");
+          output.textContent =
+            "⚠️ Error: " + (data.error || "No result returned.");
         }
-
       } catch (err) {
         loading.classList.add("hidden");
         resultDiv.classList.remove("hidden");
@@ -182,7 +223,7 @@
       }
     };
 
-    // 📋 Copy JSON button
+    // 📋 Copy JSON
     copyBtn.onclick = () => {
       navigator.clipboard.writeText(output.textContent);
       copyBtn.textContent = "✅ Copied!";
