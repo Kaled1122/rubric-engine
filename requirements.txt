@@ -3,5 +3,4 @@ flask-cors
 openai
 gunicorn
 pypdf2
-faiss-cpu
-numpy
+python-docx
