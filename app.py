@@ -109,7 +109,7 @@ Instructions:
         # ----------- 3. Call GPT-5 -----------
         completion = client.chat.completions.create(
             model="gpt-5",
-            temperature=0.3,
+            temperature=1,
             messages=messages
         )
 
