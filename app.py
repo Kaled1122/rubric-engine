@@ -1,5 +1,7 @@
 import os
 import tempfile
+import numpy as np
+import faiss
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from openai import OpenAI
@@ -12,9 +14,19 @@ app = Flask(__name__)
 CORS(app)
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 MEMORY_FILE = "previous_rubric.json"
+FAISS_INDEX = "rubric_index.faiss"
+EMBEDDING_MODEL = "text-embedding-3-small"
 
 # ------------------------------------------------------------
-# ✅ HELPER: Extract text from uploaded file
+# ✅ Initialize FAISS
+# ------------------------------------------------------------
+if os.path.exists(FAISS_INDEX):
+    index = faiss.read_index(FAISS_INDEX)
+else:
+    index = faiss.IndexFlatL2(1536)  # dimension for text-embedding-3-small
+
+# ------------------------------------------------------------
+# ✅ Helper: Extract text from file
 # ------------------------------------------------------------
 def extract_text_from_file(uploaded_file):
     filename = uploaded_file.filename.lower()
@@ -36,79 +48,95 @@ def extract_text_from_file(uploaded_file):
                 lesson_text = f.read()
             os.unlink(tmp.name)
 
-    # ---- Unsupported ----
     else:
         raise ValueError("Unsupported file type. Please upload .pdf or .txt only.")
 
     return lesson_text.strip()
 
+# ------------------------------------------------------------
+# ✅ Helper: Store embeddings in FAISS
+# ------------------------------------------------------------
+def store_text_in_faiss(text, lesson_title):
+    if not text.strip():
+        return
+
+    # Create embedding vector
+    emb = client.embeddings.create(input=text, model=EMBEDDING_MODEL).data[0].embedding
+    vector = np.array([emb], dtype="float32")
+
+    # Add vector to FAISS index
+    index.add(vector)
+    faiss.write_index(index, FAISS_INDEX)
+
+    print(f"✅ Added to FAISS index: {lesson_title} (length={len(text)} chars)")
 
 # ------------------------------------------------------------
-# ✅ MAIN ENDPOINT
+# ✅ File Upload Endpoint (Frontend confirmation)
+# ------------------------------------------------------------
+@app.route("/upload", methods=["POST"])
+def upload_file():
+    try:
+        if "lessonFile" not in request.files:
+            return jsonify({"error": "No file uploaded"}), 400
+
+        uploaded_file = request.files["lessonFile"]
+        lesson_text = extract_text_from_file(uploaded_file)
+        lesson_title = uploaded_file.filename
+
+        # Store text in FAISS
+        store_text_in_faiss(lesson_text, lesson_title)
+
+        return jsonify({"message": f"File '{lesson_title}' uploaded successfully ✅"})
+
+    except Exception as e:
+        print("❌ Upload error:", e)
+        return jsonify({"error": str(e)}), 500
+
+# ------------------------------------------------------------
+# ✅ Rubric Generation Endpoint
 # ------------------------------------------------------------
 @app.route("/generate", methods=["POST"])
 def generate_rubric():
     try:
-        # ----------- 1. Read input -----------
         stream = request.form.get("stream", "SEL").upper()
         lesson_title = request.form.get("lessonTitle", "Untitled Lesson")
 
         if stream not in ["SEL", "AW"]:
             stream = "SEL"
 
+        # If file uploaded, process it
         lesson_text = ""
         if "lessonFile" in request.files and request.files["lessonFile"].filename:
-            try:
-                lesson_text = extract_text_from_file(request.files["lessonFile"])
-            except Exception as e:
-                return jsonify({"error": str(e)}), 400
+            lesson_text = extract_text_from_file(request.files["lessonFile"])
+            store_text_in_faiss(lesson_text, lesson_title)
         elif request.form.get("lessonText"):
             lesson_text = request.form.get("lessonText")
         else:
             return jsonify({"error": "No lesson content provided."}), 400
 
-        # ----------- 2. Prepare prompts -----------
+        # ---- PROMPT ----
         system_prompt = f"""
-You are an expert instructional designer working in a bilingual military training academy.
+You are an expert instructional designer at a bilingual military training academy.
 
-There are only two training streams:
-1. SEL (School of English Language) — focuses on English comprehension, vocabulary, and grammar.
-2. AW (Academic Wing) — focuses on technical/academic English (avionics, maintenance, procedures).
+There are two streams:
+1. SEL (School of English Language) — English language comprehension and vocabulary.
+2. AW (Academic Wing) — technical/academic English (avionics, maintenance, procedures).
 
-Generate a measurable rubric and linked comprehension questions based on the provided lesson text.
-Use the **universal 4-domain framework**:
-
+Generate a measurable rubric and comprehension questions for the provided lesson.
+Use the universal 4-domain framework:
 1. Understanding
 2. Application
 3. Communication
 4. Behavior
 
-Numeric Scale (fixed):
+Numeric Scale:
 4 = Consistently accurate / independent
 3 = Usually accurate / minor help
 2 = Partial / needs support
 1 = Inaccurate / dependent
 
-Rules:
-- Adapt wording to the selected stream.
-- Use observable, measurable verbs.
-- Avoid generic adjectives like "good" or "bad".
-- Output valid JSON using this schema:
-
-{{
-  "lesson": "Lesson title",
-  "stream": "SEL | AW",
-  "rubric": [
-    {{ "domain": "Understanding", "criterion": "...", "4": "...", "3": "...", "2": "...", "1": "..." }},
-    {{ "domain": "Application", "criterion": "...", "4": "...", "3": "...", "2": "...", "1": "..." }},
-    {{ "domain": "Communication", "criterion": "...", "4": "...", "3": "...", "2": "...", "1": "..." }},
-    {{ "domain": "Behavior", "criterion": "...", "4": "...", "3": "...", "2": "...", "1": "..." }}
-  ],
-  "questions": [
-    {{ "domain": "Understanding", "stem": "...", "options": ["A","B","C","D"], "answer": "..." }},
-    {{ "domain": "Application", "stem": "...", "options": ["A","B","C","D"], "answer": "..." }}
-  ]
-}}
+Output valid JSON using this structure:
+{{"lesson": "...", "stream": "...", "rubric": [...], "questions": [...]}}.
         """
 
         user_prompt = f"""
@@ -119,44 +147,38 @@ Lesson content:
 {lesson_text}
 
 Instructions:
-1. Create criteria for the 4 domains (Understanding, Application, Communication, Behavior).
-2. Adapt each to match the {stream} context.
-3. Include one comprehension or performance question per criterion.
-4. Follow the numeric scale and JSON schema exactly.
-"""
+- Create measurable descriptors per domain.
+- Match language complexity to {stream}.
+- Output valid JSON only.
+        """
 
         messages = [
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt}
+            {"role": "user", "content": user_prompt},
         ]
 
-        # Optional memory continuity
         if os.path.exists(MEMORY_FILE):
             with open(MEMORY_FILE, "r", encoding="utf8") as f:
                 prev = f.read()
             messages.insert(1, {"role": "assistant", "content": prev})
 
-        # ----------- 3. OpenAI call -----------
         completion = client.chat.completions.create(
             model="gpt-5",
             messages=messages
         )
 
         result = completion.choices[0].message.content.strip()
-
-        # Save memory
         with open(MEMORY_FILE, "w", encoding="utf8") as f:
             f.write(result)
 
         return jsonify({"result": result})
 
     except Exception as e:
-        print("❌ Error:", e)
+        print("❌ Generation error:", e)
         return jsonify({"error": str(e)}), 500
 
-
 # ------------------------------------------------------------
-# ✅ SERVER START
+# ✅ START SERVER
 # ------------------------------------------------------------
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 3000))
