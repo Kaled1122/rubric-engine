@@ -10,8 +10,17 @@ from docx import Document
 # ✅ APP CONFIGURATION
 # ------------------------------------------------------------
 app = Flask(__name__)
-CORS(app, resources={r"/*": {"origins": "*"}})
+CORS(app, resources={r"/*": {"origins": "*"}})       # allow all origins
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+# ------------------------------------------------------------
+# ✅ SAFARI / PREFLIGHT HEADERS
+# ------------------------------------------------------------
+@app.after_request
+def after_request(response):
+    response.headers.add("Access-Control-Allow-Headers", "Content-Type,Authorization")
+    response.headers.add("Access-Control-Allow-Methods", "GET,PUT,POST,DELETE,OPTIONS")
+    return response
 
 # ------------------------------------------------------------
 # ✅ HEALTH CHECK
@@ -82,7 +91,6 @@ def generate_rubric():
         stream = request.form.get("stream", "SEL").upper()
         title = request.form.get("lessonTitle", "Untitled Lesson")
 
-        # Lesson text
         if "lessonFile" in request.files and request.files["lessonFile"].filename:
             text = extract_text_from_file(request.files["lessonFile"])
         else:
@@ -107,8 +115,9 @@ Generate a 4-domain rubric:
 Each domain must include:
 - A measurable criterion
 - Performance descriptions for scores 4–1
-Then add **2 sample comprehension questions** (multiple choice, with 1 correct answer).
-Output **strict JSON only**:
+Then add **2 sample comprehension questions** (multiple choice, one correct answer).
+
+Output **strict JSON only** in this format:
 {{"lesson": "...", "stream": "...", "rubric": [...], "questions": [...]}}.
         """
 
