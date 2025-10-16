@@ -3,70 +3,79 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>AI Lesson Rubric + Question Builder (SEL / AW)</title>
+  <title>AI Rubric & Question Generator — SEL / AW</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+    .rubric-table th, .rubric-table td { border: 1px solid #e2e8f0; padding: 8px; vertical-align: top; }
+    .rubric-table th { background-color: #e0f2fe; font-weight: 600; }
+  </style>
 </head>
 
-<body class="bg-gray-50 text-gray-800 font-sans">
+<body class="bg-gray-50 text-gray-800">
   <!-- HEADER -->
-  <header class="bg-white shadow p-5 text-center text-blue-700 text-2xl font-semibold">
-    AI Lesson Rubric + Question Builder (SEL / AW)
+  <header class="bg-white shadow p-5 text-center text-blue-700 text-2xl font-bold">
+    AI Lesson Rubric + Question Builder
   </header>
 
-  <!-- MAIN -->
-  <main class="max-w-4xl mx-auto mt-8 bg-white rounded-2xl shadow p-6">
+  <!-- MAIN CONTAINER -->
+  <main class="max-w-5xl mx-auto mt-10 bg-white rounded-2xl shadow-lg p-8">
 
-    <!-- Stream Selector -->
+    <!-- STREAM SELECTOR -->
     <label class="block font-semibold text-blue-700 mb-2">Select Stream</label>
-    <select id="stream" class="w-full border rounded p-2 mb-4">
+    <select id="stream" class="w-full border rounded p-2 mb-4 focus:ring-2 focus:ring-blue-400">
       <option value="SEL">School of English Language (SEL)</option>
       <option value="AW">Academic Wing (AW)</option>
     </select>
 
-    <!-- Lesson Title -->
+    <!-- LESSON TITLE -->
     <label class="block font-semibold text-blue-700 mb-2">Lesson Title</label>
-    <input type="text" id="lessonTitle"
-           placeholder="e.g. Lesson 3 — Work Procedures"
-           class="w-full border rounded p-2 mb-4" />
+    <input type="text" id="lessonTitle" placeholder="e.g. Lesson 3 — Reading: Procedures"
+           class="w-full border rounded p-2 mb-4 focus:ring-2 focus:ring-blue-400" />
 
-    <!-- Upload -->
+    <!-- FILE UPLOAD -->
     <label class="block font-semibold text-blue-700 mb-2">Upload Lesson File</label>
     <input type="file" id="lessonFile" class="w-full border rounded p-2 mb-4" />
 
     <div class="text-center text-gray-400 mb-4">or</div>
 
-    <!-- Paste Text -->
+    <!-- PASTE LESSON TEXT -->
     <label class="block font-semibold text-blue-700 mb-2">Paste Lesson Text</label>
-    <textarea id="lessonText" rows="6"
-              placeholder="Paste lesson objectives or content..."
-              class="w-full border rounded p-2 mb-4"></textarea>
+    <textarea id="lessonText" rows="6" placeholder="Paste lesson objectives or reading content..."
+              class="w-full border rounded p-2 mb-6 focus:ring-2 focus:ring-blue-400"></textarea>
 
-    <!-- Generate Button -->
+    <!-- GENERATE BUTTON -->
     <button id="generateBtn"
-            class="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 w-full">
+            class="bg-blue-600 text-white font-semibold px-6 py-2 rounded-lg hover:bg-blue-700 w-full">
       Generate Rubric & Questions
     </button>
 
-    <!-- Loader -->
+    <!-- LOADING INDICATOR -->
     <div id="loading" class="hidden mt-4 text-center text-gray-500">
       ⏳ Generating rubric and questions...
     </div>
 
-    <!-- Output -->
-    <div id="result" class="hidden mt-6">
-      <h2 class="text-xl font-semibold text-blue-700 mb-2">AI Output</h2>
-      <pre id="outputText"
-           class="bg-gray-100 rounded p-4 whitespace-pre-wrap overflow-x-auto text-sm"></pre>
+    <!-- OUTPUT SECTION -->
+    <section id="result" class="hidden mt-10">
+      <h2 id="rubricTitle" class="text-2xl font-bold mb-4 text-blue-700"></h2>
+      <div id="rubricTable" class="overflow-x-auto mb-8"></div>
+
+      <h2 class="text-2xl font-bold mb-4 text-blue-700">Sample Questions</h2>
+      <div id="questionList" class="space-y-4"></div>
+
+      <h2 class="text-xl font-semibold text-gray-600 mt-10 mb-2">Full JSON (for copy/export)</h2>
+      <pre id="outputText" class="bg-gray-100 rounded p-4 whitespace-pre-wrap overflow-x-auto text-sm"></pre>
+
       <button id="copyBtn"
-              class="mt-3 bg-gray-700 text-white px-4 py-2 rounded-lg hover:bg-gray-800">
+              class="mt-4 bg-gray-700 text-white px-4 py-2 rounded-lg hover:bg-gray-800">
         Copy JSON
       </button>
-    </div>
+    </section>
   </main>
 
   <!-- SCRIPT -->
   <script>
-    // ✅ Flask backend endpoint (Render)
+    // ✅ Flask backend endpoint
     const BACKEND_URL = "https://rubric-engine.onrender.com/generate";
 
     const btn = document.getElementById("generateBtn");
@@ -76,42 +85,104 @@
     const titleInput = document.getElementById("lessonTitle");
     const loading = document.getElementById("loading");
     const resultDiv = document.getElementById("result");
+    const rubricTitle = document.getElementById("rubricTitle");
+    const rubricTableDiv = document.getElementById("rubricTable");
+    const questionList = document.getElementById("questionList");
     const output = document.getElementById("outputText");
     const copyBtn = document.getElementById("copyBtn");
 
+    // 🎛 Helper: render rubric + questions
+    function renderOutput(jsonText, stream) {
+      try {
+        const data = JSON.parse(jsonText);
+        const rubric = data.rubric || [];
+        const questions = data.questions || [];
+
+        // ---- Title + color tone ----
+        const titleColor = stream === "AW" ? "text-red-700" : "text-blue-700";
+        rubricTitle.className = `text-2xl font-bold mb-4 ${titleColor}`;
+        rubricTitle.textContent = stream === "AW"
+          ? "Academic Wing (AW) Technical Rubric"
+          : "School of English Language (SEL) Rubric";
+
+        // ---- Rubric Table ----
+        const table = `
+          <table class="rubric-table w-full text-sm border-collapse">
+            <thead>
+              <tr>
+                <th>Domain</th>
+                <th>Criterion</th>
+                <th>4</th>
+                <th>3</th>
+                <th>2</th>
+                <th>1</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rubric.map(r => `
+                <tr>
+                  <td class="font-semibold">${r.domain}</td>
+                  <td>${r.criterion}</td>
+                  <td>${r["4"]}</td>
+                  <td>${r["3"]}</td>
+                  <td>${r["2"]}</td>
+                  <td>${r["1"]}</td>
+                </tr>`).join("")}
+            </tbody>
+          </table>`;
+        rubricTableDiv.innerHTML = table;
+
+        // ---- Questions ----
+        questionList.innerHTML = questions.map(q => `
+          <div class="border rounded-lg p-4 bg-gray-50">
+            <p class="font-semibold text-blue-700">${q.domain}</p>
+            <p class="mt-1">${q.stem}</p>
+            <ul class="list-disc ml-6 mt-2">
+              ${q.options.map(opt => `<li>${opt}</li>`).join("")}
+            </ul>
+            <p class="mt-2 text-green-700 font-semibold">Answer: ${q.answer}</p>
+          </div>`).join("");
+
+      } catch (err) {
+        rubricTableDiv.innerHTML = "<p class='text-red-600'>⚠️ Could not parse AI output.</p>";
+        console.error(err);
+      }
+    }
+
+    // 🎯 Main Button Action
     btn.onclick = async () => {
       loading.classList.remove("hidden");
       resultDiv.classList.add("hidden");
 
       const formData = new FormData();
-      if (fileInput.files.length) {
-        formData.append("lessonFile", fileInput.files[0]);
-      } else {
-        formData.append("lessonText", textInput.value);
-      }
+      if (fileInput.files.length) formData.append("lessonFile", fileInput.files[0]);
+      else formData.append("lessonText", textInput.value);
+
       formData.append("stream", streamInput.value);
       formData.append("lessonTitle", titleInput.value);
 
       try {
         const res = await fetch(BACKEND_URL, { method: "POST", body: formData });
         const data = await res.json();
+
         loading.classList.add("hidden");
+        resultDiv.classList.remove("hidden");
 
         if (data.result) {
           output.textContent = data.result;
-        } else if (data.error) {
-          output.textContent = "⚠️ Error: " + data.error;
+          renderOutput(data.result, streamInput.value);
         } else {
-          output.textContent = "Unexpected response.";
+          output.textContent = "⚠️ Error: " + (data.error || "No result returned.");
         }
-        resultDiv.classList.remove("hidden");
+
       } catch (err) {
         loading.classList.add("hidden");
-        output.textContent = "Connection error: " + err.message;
         resultDiv.classList.remove("hidden");
+        output.textContent = "Connection error: " + err.message;
       }
     };
 
+    // 📋 Copy JSON button
     copyBtn.onclick = () => {
       navigator.clipboard.writeText(output.textContent);
       copyBtn.textContent = "✅ Copied!";
