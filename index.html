@@ -3,16 +3,20 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>AI Rubric Generator — SEL / AW</title>
+  <title>AI Lesson Rubric + Question Builder (SEL / AW)</title>
   <script src="https://cdn.tailwindcss.com"></script>
 </head>
+
 <body class="bg-gray-50 text-gray-800 font-sans">
+  <!-- HEADER -->
   <header class="bg-white shadow p-5 text-center text-blue-700 text-2xl font-semibold">
     AI Lesson Rubric + Question Builder (SEL / AW)
   </header>
 
+  <!-- MAIN -->
   <main class="max-w-4xl mx-auto mt-8 bg-white rounded-2xl shadow p-6">
-    <!-- Stream -->
+
+    <!-- Stream Selector -->
     <label class="block font-semibold text-blue-700 mb-2">Select Stream</label>
     <select id="stream" class="w-full border rounded p-2 mb-4">
       <option value="SEL">School of English Language (SEL)</option>
@@ -21,7 +25,8 @@
 
     <!-- Lesson Title -->
     <label class="block font-semibold text-blue-700 mb-2">Lesson Title</label>
-    <input type="text" id="lessonTitle" placeholder="e.g. Lesson 3 — Work Procedures"
+    <input type="text" id="lessonTitle"
+           placeholder="e.g. Lesson 3 — Work Procedures"
            class="w-full border rounded p-2 mb-4" />
 
     <!-- Upload -->
@@ -30,12 +35,13 @@
 
     <div class="text-center text-gray-400 mb-4">or</div>
 
-    <!-- Paste -->
+    <!-- Paste Text -->
     <label class="block font-semibold text-blue-700 mb-2">Paste Lesson Text</label>
-    <textarea id="lessonText" rows="6" placeholder="Paste lesson objectives or content..."
+    <textarea id="lessonText" rows="6"
+              placeholder="Paste lesson objectives or content..."
               class="w-full border rounded p-2 mb-4"></textarea>
 
-    <!-- Button -->
+    <!-- Generate Button -->
     <button id="generateBtn"
             class="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 w-full">
       Generate Rubric & Questions
@@ -58,8 +64,11 @@
     </div>
   </main>
 
+  <!-- SCRIPT -->
   <script>
+    // ✅ Flask backend endpoint (Render)
     const BACKEND_URL = "https://rubric-engine.onrender.com/generate";
+
     const btn = document.getElementById("generateBtn");
     const fileInput = document.getElementById("lessonFile");
     const textInput = document.getElementById("lessonText");
@@ -75,8 +84,11 @@
       resultDiv.classList.add("hidden");
 
       const formData = new FormData();
-      if (fileInput.files.length) formData.append("lessonFile", fileInput.files[0]);
-      else formData.append("lessonText", textInput.value);
+      if (fileInput.files.length) {
+        formData.append("lessonFile", fileInput.files[0]);
+      } else {
+        formData.append("lessonText", textInput.value);
+      }
       formData.append("stream", streamInput.value);
       formData.append("lessonTitle", titleInput.value);
 
@@ -84,7 +96,14 @@
         const res = await fetch(BACKEND_URL, { method: "POST", body: formData });
         const data = await res.json();
         loading.classList.add("hidden");
-        output.textContent = data.result || data.error || "Error.";
+
+        if (data.result) {
+          output.textContent = data.result;
+        } else if (data.error) {
+          output.textContent = "⚠️ Error: " + data.error;
+        } else {
+          output.textContent = "Unexpected response.";
+        }
         resultDiv.classList.remove("hidden");
       } catch (err) {
         loading.classList.add("hidden");
