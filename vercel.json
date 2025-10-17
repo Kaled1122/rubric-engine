@@ -6,3 +6,5 @@
   "routes": [
     { "src": "/(.*)", "dest": "/index.html" }
   ],
+  "ignoreCommand": "echo 'Skipping backend files for frontend build'"
+}
