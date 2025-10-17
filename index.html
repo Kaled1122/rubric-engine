@@ -59,10 +59,7 @@
       align-items: center;
     }
     .lesson-header:hover { background: #dbeafe; }
-    .lesson-body {
-      display: none;
-      padding: 20px;
-    }
+    .lesson-body { display: none; padding: 20px; }
     .rotate { transform: rotate(90deg); transition: transform 0.2s; }
     .rotate.open { transform: rotate(270deg); }
   </style>
@@ -109,25 +106,43 @@
     document.getElementById("generateBtn").addEventListener("click", async () => {
       const file = document.getElementById("fileInput").files[0];
       const stream = document.getElementById("stream").value;
-      if (!file) return (status.textContent = "⚠️ Please upload a Book Scope file first.");
+      if (!file) {
+        status.innerHTML = `<span class="text-red-600 font-medium">⚠️ Please upload a Book Scope file first.</span>`;
+        return;
+      }
 
       const form = new FormData();
       form.append("file", file);
       form.append("stream", stream);
 
-      status.textContent = "⏳ Processing lessons 1–4...";
+      status.innerHTML = `<span class="text-gray-700">⏳ Processing lessons 1–4 … please wait (≈ 30 s)</span>`;
       output.classList.add("hidden");
       rubricContainer.innerHTML = "";
 
       try {
         const res = await fetch(backendURL, { method: "POST", body: form });
-        if (!res.ok) throw new Error(`Server error: ${res.status}`);
-        const data = await res.json();
 
-        if (!data.lessons || !Array.isArray(data.lessons)) throw new Error("Invalid backend response.");
+        // --- Improved error handling ---
+        if (!res.ok) {
+          const text = await res.text();
+          try {
+            const parsed = JSON.parse(text);
+            throw new Error(parsed.error || `Server ${res.status}: ${text}`);
+          } catch {
+            throw new Error(`Server ${res.status}: ${text}`);
+          }
+        }
+
+        const data = await res.json();
+        console.log("✅ Backend response:", data);
+
+        if (!data.lessons || !Array.isArray(data.lessons)) {
+          throw new Error("Invalid backend response: no lessons array found.");
+        }
 
         lessonTitle.textContent = `Book Scope Rubrics (${data.stream})`;
 
+        // Build lesson cards
         data.lessons.forEach((lesson) => {
           const lessonCard = document.createElement("div");
           lessonCard.className = "lesson-card";
@@ -159,12 +174,12 @@
           rubricContainer.appendChild(lessonCard);
         });
 
-        status.textContent = "✅ Rubrics generated successfully!";
+        status.innerHTML = `<span class="text-green-700 font-medium">✅ Rubrics generated successfully!</span>`;
         output.classList.remove("hidden");
         output.scrollIntoView({ behavior: "smooth" });
       } catch (err) {
         console.error(err);
-        status.textContent = "❌ " + err.message;
+        status.innerHTML = `<span class="text-red-600 font-medium">❌ ${err.message}</span>`;
       }
     });
 
@@ -175,7 +190,7 @@
       let html = `<h3 class="rubric-title">Domain Overview</h3>`;
       html += `<table><thead><tr>
         <th>Domain</th><th>Areas</th><th>Tasks</th>
-        <th>Pts/Task</th><th>Domain Max</th><th>Weight%</th><th>Description</th>
+        <th>Pts/Task</th><th>Domain Max</th><th>Weight %</th><th>Description</th>
       </tr></thead><tbody>`;
 
       rubric.forEach(r => {
