@@ -1,4 +1,4 @@
-const backendURL = "https://ai-rubric-generator.onrender.com/generate"; // change to your Render URL
+const backendURL = "https://rubric-engine.onrender.com/generate"; // change to your Render URL
 
 document.getElementById("generateBtn").addEventListener("click", async () => {
   const fileInput = document.getElementById("fileInput");
