@@ -8,14 +8,17 @@ from docx import Document
 # APP SETUP
 # ------------------------------------------------------------
 app = Flask(__name__)
-CORS(app, resources={r"/*": {"origins": "https://rubric-engine.vercel.app"}})
+
+# Allow all origins while testing (you can restrict later)
+CORS(app, resources={r"/*": {"origins": "*"}})
+
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
 # ------------------------------------------------------------
 # UTILITIES
 # ------------------------------------------------------------
 def extract_text(file):
-    """Extract readable text from PDF, DOCX, or TXT files (simple fallback for scanned PDFs)."""
+    """Extract readable text from PDF, DOCX, or TXT files."""
     name = file.filename.lower()
     text = ""
     try:
@@ -35,8 +38,7 @@ def extract_text(file):
 def split_lessons(text):
     """
     Split book scope text into Lessons 1–4.
-    Handles formats like:
-    'Lesson 1', '1 Vending machines', 'Lesson 2:', etc.
+    Handles formats like 'Lesson 1', '1 Vending machines', etc.
     """
     pattern = r"(?:Lesson\s*)?(\b[1-4]\b)[\.:–-]?\s"
     chunks = re.split(pattern, text)
@@ -65,12 +67,14 @@ def generate():
 
         raw_text = extract_text(request.files["file"])
         if not raw_text:
-            return jsonify({"error": "Empty or unreadable file. Try exporting the scope again as text-based PDF."}), 400
+            return jsonify({
+                "error": "Empty or unreadable file. Try exporting as a text-based PDF or upload .docx."
+            }), 400
 
         lessons = split_lessons(raw_text)
         if not lessons:
             return jsonify({
-                "error": "No valid lessons (1–4) found. Ensure the PDF contains lesson numbers like '1', '2', '3', '4'."
+                "error": "No valid lessons (1–4) found. Ensure lesson numbers like '1', '2', '3', '4' appear clearly."
             }), 400
 
         results = []
@@ -86,7 +90,7 @@ You are an expert instructional designer working with the American Language Cour
 Create a *quantitative performance rubric and task matrix* for:
 Book Scope Lesson {lesson_num}
 
-Use the provided lesson text to infer lesson title, vocabulary/functions, grammar, and skills.
+Use the provided lesson text to infer title, vocabulary/functions, grammar, and skills.
 
 -----------------------------------------------------------
 🎯 OBJECTIVE
@@ -176,7 +180,7 @@ Return ONLY valid JSON in this schema:
 🧮 RULES
 - Output JSON only (no commentary or markdown).
 - Total = 55 points; weights = 100%.
-- Derive lesson title & grammar points from the text.
+- Derive lesson title & grammar from text.
 """
 
             # ---------- OpenAI Call ----------
@@ -194,11 +198,14 @@ Return ONLY valid JSON in this schema:
                 data = json.loads(response.choices[0].message.content)
             except Exception as parse_err:
                 print(f"[Lesson {lesson_num}] Parse error: {parse_err}")
-                data = {"lesson_number": lesson_num, "error": "Invalid JSON returned by model."}
+                data = {
+                    "lesson_number": lesson_num,
+                    "error": "Invalid JSON returned by model."
+                }
 
             results.append(data)
 
-        # ---------- Response ----------
+        # ---------- Success Response ----------
         return jsonify({
             "book_scope": "Processed successfully",
             "stream": stream,
