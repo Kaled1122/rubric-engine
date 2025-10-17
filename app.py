@@ -11,36 +11,44 @@ app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "https://rubric-engine.vercel.app"}})
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
-
 # ------------------------------------------------------------
 # UTILITIES
 # ------------------------------------------------------------
 def extract_text(file):
-    """Extract text from PDF, DOCX, or TXT files."""
+    """Extract readable text from PDF, DOCX, or TXT files (simple fallback for scanned PDFs)."""
     name = file.filename.lower()
-    if name.endswith(".pdf"):
-        reader = PdfReader(file)
-        return "\n".join([p.extract_text() or "" for p in reader.pages])
-    elif name.endswith(".docx"):
-        doc = Document(file)
-        return "\n".join([p.text for p in doc.paragraphs])
-    else:
-        return file.read().decode("utf-8", errors="ignore")
+    text = ""
+    try:
+        if name.endswith(".pdf"):
+            reader = PdfReader(file)
+            text = "\n".join([p.extract_text() or "" for p in reader.pages])
+        elif name.endswith(".docx"):
+            doc = Document(file)
+            text = "\n".join([p.text for p in doc.paragraphs])
+        else:
+            text = file.read().decode("utf-8", errors="ignore")
+    except Exception as e:
+        print(f"[extract_text] Error: {e}")
+    return text.strip()
 
 
 def split_lessons(text):
     """
-    Split scope text into individual lessons (1–4 only).
+    Split book scope text into Lessons 1–4.
+    Handles formats like:
+    'Lesson 1', '1 Vending machines', 'Lesson 2:', etc.
     """
-    lessons = re.split(r"\bLesson\s+(\d+)\b", text)
-    blocks = []
-    for i in range(1, len(lessons), 2):
-        num = lessons[i]
-        content = lessons[i + 1]
-        if num.isdigit() and int(num) <= 4:
-            cleaned = " ".join(content.strip().split())
-            blocks.append({"lesson_number": int(num), "content": cleaned})
-    return blocks
+    pattern = r"(?:Lesson\s*)?(\b[1-4]\b)[\.:–-]?\s"
+    chunks = re.split(pattern, text)
+    results = []
+
+    for i in range(1, len(chunks), 2):
+        num = chunks[i].strip()
+        content = chunks[i + 1] if i + 1 < len(chunks) else ""
+        if num.isdigit():
+            clean = " ".join(content.strip().split())
+            results.append({"lesson_number": int(num), "content": clean})
+    return results
 
 
 # ------------------------------------------------------------
@@ -51,26 +59,26 @@ def generate():
     try:
         stream = request.form.get("stream") or "SEL"
 
-        # Validate upload
+        # ---------- Validation ----------
         if "file" not in request.files:
             return jsonify({"error": "No file uploaded"}), 400
 
         raw_text = extract_text(request.files["file"])
-        if not raw_text.strip():
-            return jsonify({"error": "Empty or unreadable file"}), 400
+        if not raw_text:
+            return jsonify({"error": "Empty or unreadable file. Try exporting the scope again as text-based PDF."}), 400
 
         lessons = split_lessons(raw_text)
         if not lessons:
-            return jsonify({"error": "No valid lessons (1–4) found"}), 400
+            return jsonify({
+                "error": "No valid lessons (1–4) found. Ensure the PDF contains lesson numbers like '1', '2', '3', '4'."
+            }), 400
 
         results = []
 
-        # --------------------------------------------------------
-        # PROCESS EACH LESSON
-        # --------------------------------------------------------
+        # ---------- Process each lesson ----------
         for lesson in lessons:
             lesson_num = lesson["lesson_number"]
-            lesson_text = lesson["content"][:4000]  # limit tokens
+            lesson_text = lesson["content"][:4000]  # Trim for token safety
 
             system_prompt = f"""
 You are an expert instructional designer working with the American Language Course (ALC).
@@ -78,17 +86,16 @@ You are an expert instructional designer working with the American Language Cour
 Create a *quantitative performance rubric and task matrix* for:
 Book Scope Lesson {lesson_num}
 
-Base your output on the provided lesson text.
+Use the provided lesson text to infer lesson title, vocabulary/functions, grammar, and skills.
 
 -----------------------------------------------------------
 🎯 OBJECTIVE
-Produce a measurable rubric and scoring system that converts qualitative domains
-(Understanding, Application, Communication, Behavior)
-into quantifiable points and tasks.
+Generate a measurable rubric and scoring system that quantifies:
+Understanding, Application, Communication, and Behavior domains.
 
 -----------------------------------------------------------
 🧱 OUTPUT FORMAT
-Return ONLY valid JSON, exactly in this structure:
+Return ONLY valid JSON in this schema:
 {{
   "lesson_number": {lesson_num},
   "lesson_title": "Infer from lesson content",
@@ -167,15 +174,12 @@ Return ONLY valid JSON, exactly in this structure:
 
 -----------------------------------------------------------
 🧮 RULES
-- JSON only; no markdown, commentary, or prose.
-- Use lesson content to infer grammar and skills.
-- Total points = 55; weights = 100%.
-- One complete object per lesson.
+- Output JSON only (no commentary or markdown).
+- Total = 55 points; weights = 100%.
+- Derive lesson title & grammar points from the text.
 """
 
-            # --------------------------------------------------------
-            # OPENAI CALL
-            # --------------------------------------------------------
+            # ---------- OpenAI Call ----------
             response = openai.chat.completions.create(
                 model="gpt-4o-mini",
                 temperature=0.3,
@@ -186,12 +190,15 @@ Return ONLY valid JSON, exactly in this structure:
                 response_format={"type": "json_object"}
             )
 
-            result = json.loads(response.choices[0].message.content)
-            results.append(result)
+            try:
+                data = json.loads(response.choices[0].message.content)
+            except Exception as parse_err:
+                print(f"[Lesson {lesson_num}] Parse error: {parse_err}")
+                data = {"lesson_number": lesson_num, "error": "Invalid JSON returned by model."}
 
-        # --------------------------------------------------------
-        # COMBINED OUTPUT
-        # --------------------------------------------------------
+            results.append(data)
+
+        # ---------- Response ----------
         return jsonify({
             "book_scope": "Processed successfully",
             "stream": stream,
@@ -199,6 +206,7 @@ Return ONLY valid JSON, exactly in this structure:
         })
 
     except Exception as e:
+        print(f"[Server Error] {e}")
         return jsonify({"error": str(e)}), 500
 
 
