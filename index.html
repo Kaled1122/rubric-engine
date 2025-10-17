@@ -10,6 +10,8 @@
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
       background-color: #f5f5f7;
       color: #1d1d1f;
+      margin: 0;
+      padding: 40px;
     }
     .card {
       background: #fff;
@@ -17,18 +19,18 @@
       box-shadow: 0 6px 24px rgba(0,0,0,0.08);
       padding: 32px;
       max-width: 900px;
-      margin: 40px auto;
+      margin: 0 auto;
     }
     table {
       border-collapse: collapse;
       width: 100%;
       margin-top: 12px;
+      font-size: 14px;
     }
     th, td {
       border: 1px solid #e5e5e5;
       padding: 8px 10px;
       text-align: left;
-      font-size: 14px;
     }
     th {
       background-color: #f9fafb;
@@ -65,24 +67,23 @@
         <label class="block font-semibold mb-1">Upload Lesson (.pdf / .docx / .txt)</label>
         <input id="fileInput" type="file" class="w-full border rounded-md p-2">
       </div>
-      <button id="generateBtn"
-        class="w-full bg-blue-600 text-white font-semibold p-3 rounded-lg hover:bg-blue-700 mt-4 transition">
+      <button id="generateBtn" class="w-full bg-blue-600 text-white font-semibold p-3 rounded-lg hover:bg-blue-700 transition">
         Generate Rubric & Questions
       </button>
-      <div id="status" class="text-center text-sm mt-2"></div>
+      <div id="status" class="text-center text-sm mt-3"></div>
     </div>
 
     <div id="output" class="hidden mt-8">
       <h2 id="lessonTitle" class="text-xl font-semibold mb-4"></h2>
-
       <div id="rubricContainer"></div>
-
       <h3 class="rubric-title">Sample Comprehension Questions</h3>
       <div id="questionsContainer"></div>
     </div>
   </div>
 
   <script>
+    const backendURL = "https://rubric-engine.onrender.com/generate";
+
     const status = document.getElementById("status");
     const output = document.getElementById("output");
     const lessonTitle = document.getElementById("lessonTitle");
@@ -92,7 +93,7 @@
     document.getElementById("generateBtn").addEventListener("click", async () => {
       const file = document.getElementById("fileInput").files[0];
       const stream = document.getElementById("stream").value;
-      if (!file) return status.textContent = "⚠️ Please upload a file first.";
+      if (!file) return (status.textContent = "⚠️ Please upload a file first.");
 
       const form = new FormData();
       form.append("file", file);
@@ -102,17 +103,17 @@
       output.classList.add("hidden");
 
       try {
-        const res = await fetch("/generate", { method: "POST", body: form });
+        const res = await fetch(backendURL, { method: "POST", body: form });
         if (!res.ok) throw new Error(`Server error: ${res.status}`);
         const data = await res.json();
 
-        // Display lesson and rubric
         lessonTitle.textContent = `${data.lesson} (${data.stream})`;
         renderRubric(data.rubric);
         renderQuestions(data.questions);
 
         status.textContent = "✅ Generation successful!";
         output.classList.remove("hidden");
+        output.scrollIntoView({ behavior: "smooth" });
       } catch (err) {
         console.error(err);
         status.textContent = "❌ " + err.message;
@@ -151,15 +152,17 @@
         return;
       }
 
-      questionsContainer.innerHTML = questions.map((q, i) => `
-        <div class="question-block">
-          <div class="question-stem">${i + 1}. [${q.domain}] ${q.stem}</div>
-          <ul class="mt-1">
-            ${q.options.map(opt => `<li>${opt}</li>`).join("")}
-          </ul>
-          <div class="mt-2 text-green-600 text-sm">✔️ Correct answer: ${q.answer}</div>
-        </div>
-      `).join("");
+      questionsContainer.innerHTML = questions
+        .map((q, i) => `
+          <div class="question-block">
+            <div class="question-stem">${i + 1}. [${q.domain}] ${q.stem}</div>
+            <ul class="mt-1">
+              ${q.options.map(opt => `<li>${opt}</li>`).join("")}
+            </ul>
+            <div class="mt-2 text-green-600 text-sm">✔️ Correct answer: ${q.answer}</div>
+          </div>
+        `)
+        .join("");
     }
   </script>
 </body>
