@@ -1,43 +1,61 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>AI Rubric & Question Generator</title>
   <link href="https://cdn.jsdelivr.net/npm/tailwindcss@3.4.1/dist/tailwind.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="style.css" />
+  <style>
+    body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+    pre { font-size: 0.9rem; white-space: pre-wrap; word-break: break-word; }
+  </style>
 </head>
-<body class="bg-gray-50 text-gray-900 font-sans p-8">
+<body class="bg-gray-50 p-8">
   <h1 class="text-3xl font-bold text-center mb-8">AI Rubric & Question Generator (SEL / AW)</h1>
-
   <div class="max-w-3xl mx-auto bg-white rounded-2xl shadow p-6 space-y-6">
     <div>
-      <label class="block text-sm font-semibold">Select Stream</label>
+      <label class="block font-semibold mb-1">Select Stream</label>
       <select id="stream" class="w-full border rounded-md p-2">
         <option value="SEL">SEL (School of English Language)</option>
         <option value="AW">AW (Academic Wing)</option>
       </select>
     </div>
-
     <div>
-      <label class="block text-sm font-semibold mt-4">Upload Lesson (.pdf / .docx / .txt)</label>
-      <input id="fileInput" type="file" class="w-full border rounded-md p-2" />
+      <label class="block font-semibold mb-1">Upload Lesson (.pdf / .docx / .txt)</label>
+      <input id="fileInput" type="file" class="w-full border rounded-md p-2">
     </div>
-
     <button id="generateBtn" class="w-full bg-blue-600 text-white font-semibold p-3 rounded-lg hover:bg-blue-700 mt-6">
       Generate Rubric & Questions
     </button>
-
     <div id="status" class="text-center text-sm mt-4"></div>
-
-    <div id="results" class="mt-6 hidden">
-      <h2 class="text-xl font-semibold mb-2">Rubric</h2>
-      <div id="rubricTable" class="overflow-x-auto"></div>
-      <h2 class="text-xl font-semibold mt-6 mb-2">Comprehension Questions</h2>
-      <div id="questionsList"></div>
-    </div>
+    <pre id="output" class="hidden bg-gray-100 rounded-lg p-4"></pre>
   </div>
 
-  <script src="script.js"></script>
+  <script>
+    document.getElementById("generateBtn").addEventListener("click", async () => {
+      const file = document.getElementById("fileInput").files[0];
+      const stream = document.getElementById("stream").value;
+      const status = document.getElementById("status");
+      const output = document.getElementById("output");
+      if (!file) return status.textContent = "⚠️ Please upload a file.";
+
+      const form = new FormData();
+      form.append("file", file);
+      form.append("stream", stream);
+      status.textContent = "⏳ Generating rubric...";
+      output.classList.add("hidden");
+
+      try {
+        const res = await fetch("/generate", { method: "POST", body: form });
+        if (!res.ok) throw new Error(`Server error: ${res.status}`);
+        const data = await res.json();
+        status.textContent = "✅ Success!";
+        output.textContent = JSON.stringify(data, null, 2);
+        output.classList.remove("hidden");
+      } catch (err) {
+        status.textContent = "❌ " + err.message;
+      }
+    });
+  </script>
 </body>
 </html>
