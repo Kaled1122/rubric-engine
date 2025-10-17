@@ -224,6 +224,9 @@ Return ONLY valid JSON in this schema:
 def home():
     return jsonify({"status": "✅ Quantitative Rubric Engine Running"})
 
+@app.route("/")
+def home():
+    return {"status": "✅ Quantitative Rubric Engine Running"}
 
 # ------------------------------------------------------------
 # ENTRY POINT
