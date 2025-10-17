@@ -1,4 +1,4 @@
-import os, json, openai
+import os, json, re, openai
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from PyPDF2 import PdfReader
@@ -11,11 +11,12 @@ app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "https://rubric-engine.vercel.app"}})
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
+
 # ------------------------------------------------------------
 # UTILITIES
 # ------------------------------------------------------------
 def extract_text(file):
-    """Extract text from .pdf, .docx, or .txt files."""
+    """Extract text from PDF, DOCX, or TXT files."""
     name = file.filename.lower()
     if name.endswith(".pdf"):
         reader = PdfReader(file)
@@ -27,6 +28,21 @@ def extract_text(file):
         return file.read().decode("utf-8", errors="ignore")
 
 
+def split_lessons(text):
+    """
+    Split scope text into individual lessons (1–4 only).
+    """
+    lessons = re.split(r"\bLesson\s+(\d+)\b", text)
+    blocks = []
+    for i in range(1, len(lessons), 2):
+        num = lessons[i]
+        content = lessons[i + 1]
+        if num.isdigit() and int(num) <= 4:
+            cleaned = " ".join(content.strip().split())
+            blocks.append({"lesson_number": int(num), "content": cleaned})
+    return blocks
+
+
 # ------------------------------------------------------------
 # MAIN ROUTE
 # ------------------------------------------------------------
@@ -34,88 +50,164 @@ def extract_text(file):
 def generate():
     try:
         stream = request.form.get("stream") or "SEL"
+
+        # Validate upload
         if "file" not in request.files:
             return jsonify({"error": "No file uploaded"}), 400
-        lesson_text = extract_text(request.files["file"])
-        if not lesson_text.strip():
-            return jsonify({"error": "Empty lesson"}), 400
+
+        raw_text = extract_text(request.files["file"])
+        if not raw_text.strip():
+            return jsonify({"error": "Empty or unreadable file"}), 400
+
+        lessons = split_lessons(raw_text)
+        if not lessons:
+            return jsonify({"error": "No valid lessons (1–4) found"}), 400
+
+        results = []
 
         # --------------------------------------------------------
-        # ✅ FULL EMBEDDED PROMPT (as requested, no truncation)
+        # PROCESS EACH LESSON
         # --------------------------------------------------------
-        system_prompt = f"""
-You are an expert instructional designer working in a bilingual military academy.
+        for lesson in lessons:
+            lesson_num = lesson["lesson_number"]
+            lesson_text = lesson["content"][:4000]  # limit tokens
 
-There are two training streams:
-1. SEL — focuses on English comprehension, vocabulary, and communication.
-2. AW — focuses on technical/academic English (aviation, engineering, defense).
+            system_prompt = f"""
+You are an expert instructional designer working with the American Language Course (ALC).
 
-Analyze the given lesson and build a structured **assessment rubric** and **sample comprehension questions**.
+Create a *quantitative performance rubric and task matrix* for:
+Book Scope Lesson {lesson_num}
 
-🎯 **Your tasks**
-1. Identify key learning outcomes in the lesson.
-2. For each of the four fixed domains, create a measurable criterion and four performance levels (4–1).
-3. Generate **four comprehension questions**, one for each domain, each with four multiple-choice options (A–D) and one correct answer.
+Base your output on the provided lesson text.
 
-🧱 **Fixed Domains**
-- Understanding → measures comprehension of the lesson ideas.
-- Application → measures use of knowledge or skills in context.
-- Communication → measures accuracy, clarity, and fluency in English.
-- Behavior → measures discipline, teamwork, and classroom engagement.
+-----------------------------------------------------------
+🎯 OBJECTIVE
+Produce a measurable rubric and scoring system that converts qualitative domains
+(Understanding, Application, Communication, Behavior)
+into quantifiable points and tasks.
 
-🧮 **Performance Levels (4–1)**
-Use short, measurable descriptors for each domain.
-- 4 = Excellent / Outstanding
-- 3 = Good / Meets expectations
-- 2 = Needs improvement
-- 1 = Unsatisfactory / Limited ability
-
-🧾 **Output Format**
-Return ONLY valid JSON in exactly this structure:
+-----------------------------------------------------------
+🧱 OUTPUT FORMAT
+Return ONLY valid JSON, exactly in this structure:
 {{
-  "lesson": "Lesson title or topic",
-  "stream": "{stream}",
-  "rubric": [
-    {{"domain": "Understanding", "criterion": "...", "4": "...", "3": "...", "2": "...", "1": "..." }},
-    {{"domain": "Application",  "criterion": "...", "4": "...", "3": "...", "2": "...", "1": "..." }},
-    {{"domain": "Communication","criterion": "...", "4": "...", "3": "...", "2": "...", "1": "..." }},
-    {{"domain": "Behavior",     "criterion": "...", "4": "...", "3": "...", "2": "...", "1": "..." }}
+  "lesson_number": {lesson_num},
+  "lesson_title": "Infer from lesson content",
+  "rubric_overview": [
+    {{
+      "domain": "Understanding",
+      "areas": ["Listening comprehension", "Reading comprehension"],
+      "tasks": 4,
+      "points_per_task": 2,
+      "domain_max": 8,
+      "weight": 25,
+      "description": "Measures comprehension of lesson ideas and vocabulary."
+    }},
+    {{
+      "domain": "Application",
+      "areas": ["Grammar patterns from lesson"],
+      "tasks": 6,
+      "points_per_task": 3,
+      "domain_max": 18,
+      "weight": 30,
+      "description": "Measures grammatical accuracy and contextual use."
+    }},
+    {{
+      "domain": "Communication",
+      "areas": ["Speaking tasks", "Writing tasks"],
+      "tasks": 4,
+      "points_per_task": 5,
+      "domain_max": 20,
+      "weight": 30,
+      "description": "Measures clarity, coherence, and fluency in productive skills."
+    }},
+    {{
+      "domain": "Behavior",
+      "areas": ["Teamwork", "Participation", "Responsibility"],
+      "tasks": 3,
+      "points_per_task": 3,
+      "domain_max": 9,
+      "weight": 15,
+      "description": "Measures discipline, cooperation, and engagement."
+    }}
   ],
-  "questions": [
-    {{"domain": "Understanding", "stem": "...", "options": ["A","B","C","D"], "answer": "A"}},
-    {{"domain": "Application",  "stem": "...", "options": ["A","B","C","D"], "answer": "B"}},
-    {{"domain": "Communication","stem": "...", "options": ["A","B","C","D"], "answer": "C"}},
-    {{"domain": "Behavior",     "stem": "...", "options": ["A","B","C","D"], "answer": "D"}}
-  ]
+  "task_matrix": {{
+    "Understanding": [
+      {{"area": "Listening comprehension", "question": "..." }},
+      {{"area": "Reading comprehension", "question": "..." }}
+    ],
+    "Application": [
+      {{"area": "Grammar – how + to-infinitive", "question": "..." }},
+      {{"area": "Grammar – adverbial clause", "question": "..." }}
+    ],
+    "Communication": [
+      {{"area": "Speaking", "task": "Give oral instructions..." }},
+      {{"area": "Writing", "task": "Combine two sentences..." }}
+    ],
+    "Behavior": [
+      {{"area": "Teamwork", "observation": "Collaborates effectively" }},
+      {{"area": "Responsibility", "observation": "Completes tasks on time" }}
+    ]
+  }},
+  "scoring_system": {{
+    "total_points": 55,
+    "weights": {{
+      "Understanding": 0.25,
+      "Application": 0.30,
+      "Communication": 0.30,
+      "Behavior": 0.15
+    }},
+    "bands": [
+      {{"range": "90–100", "label": "Outstanding"}},
+      {{"range": "75–89", "label": "Competent"}},
+      {{"range": "60–74", "label": "Developing"}},
+      {{"range": "<60", "label": "Needs Support"}}
+    ]
+  }}
 }}
-Do not include any text, explanation, or markdown outside this JSON.
+
+-----------------------------------------------------------
+🧮 RULES
+- JSON only; no markdown, commentary, or prose.
+- Use lesson content to infer grammar and skills.
+- Total points = 55; weights = 100%.
+- One complete object per lesson.
 """
 
-        # --------------------------------------------------------
-        #  OPENAI CALL
-        # --------------------------------------------------------
-        response = openai.chat.completions.create(
-            model="gpt-4o-mini",
-            temperature=0.3,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": lesson_text}
-            ],
-            response_format={"type": "json_object"}
-        )
+            # --------------------------------------------------------
+            # OPENAI CALL
+            # --------------------------------------------------------
+            response = openai.chat.completions.create(
+                model="gpt-4o-mini",
+                temperature=0.3,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": lesson_text}
+                ],
+                response_format={"type": "json_object"}
+            )
 
-        return response.choices[0].message.content, 200, {"Content-Type": "application/json"}
+            result = json.loads(response.choices[0].message.content)
+            results.append(result)
+
+        # --------------------------------------------------------
+        # COMBINED OUTPUT
+        # --------------------------------------------------------
+        return jsonify({
+            "book_scope": "Processed successfully",
+            "stream": stream,
+            "lessons": results
+        })
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 
 # ------------------------------------------------------------
-# TEST ROUTE
+# HEALTH CHECK
 # ------------------------------------------------------------
 @app.route("/")
 def home():
-    return jsonify({"status": "✅ AI Rubric Generator Backend Running"})
+    return jsonify({"status": "✅ Quantitative Rubric Engine Running"})
 
 
 # ------------------------------------------------------------
