@@ -1,47 +1,103 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>AI Rubric & Question Generator</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AI Rubric & Question Generator (SEL / AW)</title>
   <link href="https://cdn.jsdelivr.net/npm/tailwindcss@3.4.1/dist/tailwind.min.css" rel="stylesheet">
   <style>
-    body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
-    pre { font-size: 0.9rem; white-space: pre-wrap; word-break: break-word; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background-color: #f5f5f7;
+      color: #1d1d1f;
+    }
+    .card {
+      background: #fff;
+      border-radius: 24px;
+      box-shadow: 0 6px 24px rgba(0,0,0,0.08);
+      padding: 32px;
+      max-width: 900px;
+      margin: 40px auto;
+    }
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      margin-top: 12px;
+    }
+    th, td {
+      border: 1px solid #e5e5e5;
+      padding: 8px 10px;
+      text-align: left;
+      font-size: 14px;
+    }
+    th {
+      background-color: #f9fafb;
+      font-weight: 600;
+    }
+    .rubric-title {
+      font-size: 1.25rem;
+      font-weight: 600;
+      margin-top: 24px;
+    }
+    .question-block {
+      background: #f9fafb;
+      border-radius: 12px;
+      padding: 16px;
+      margin-top: 16px;
+    }
+    .question-stem {
+      font-weight: 500;
+    }
   </style>
 </head>
-<body class="bg-gray-50 p-8">
-  <h1 class="text-3xl font-bold text-center mb-8">AI Rubric & Question Generator (SEL / AW)</h1>
-  <div class="max-w-3xl mx-auto bg-white rounded-2xl shadow p-6 space-y-6">
-    <div>
-      <label class="block font-semibold mb-1">Select Stream</label>
-      <select id="stream" class="w-full border rounded-md p-2">
-        <option value="SEL">SEL (School of English Language)</option>
-        <option value="AW">AW (Academic Wing)</option>
-      </select>
+<body>
+  <div class="card">
+    <h1 class="text-3xl font-bold text-center mb-8">AI Rubric & Question Generator</h1>
+    <div class="space-y-4">
+      <div>
+        <label class="block font-semibold mb-1">Select Stream</label>
+        <select id="stream" class="w-full border rounded-md p-2">
+          <option value="SEL">SEL (School of English Language)</option>
+          <option value="AW">AW (Academic Wing)</option>
+        </select>
+      </div>
+      <div>
+        <label class="block font-semibold mb-1">Upload Lesson (.pdf / .docx / .txt)</label>
+        <input id="fileInput" type="file" class="w-full border rounded-md p-2">
+      </div>
+      <button id="generateBtn"
+        class="w-full bg-blue-600 text-white font-semibold p-3 rounded-lg hover:bg-blue-700 mt-4 transition">
+        Generate Rubric & Questions
+      </button>
+      <div id="status" class="text-center text-sm mt-2"></div>
     </div>
-    <div>
-      <label class="block font-semibold mb-1">Upload Lesson (.pdf / .docx / .txt)</label>
-      <input id="fileInput" type="file" class="w-full border rounded-md p-2">
+
+    <div id="output" class="hidden mt-8">
+      <h2 id="lessonTitle" class="text-xl font-semibold mb-4"></h2>
+
+      <div id="rubricContainer"></div>
+
+      <h3 class="rubric-title">Sample Comprehension Questions</h3>
+      <div id="questionsContainer"></div>
     </div>
-    <button id="generateBtn" class="w-full bg-blue-600 text-white font-semibold p-3 rounded-lg hover:bg-blue-700 mt-6">
-      Generate Rubric & Questions
-    </button>
-    <div id="status" class="text-center text-sm mt-4"></div>
-    <pre id="output" class="hidden bg-gray-100 rounded-lg p-4"></pre>
   </div>
 
   <script>
+    const status = document.getElementById("status");
+    const output = document.getElementById("output");
+    const lessonTitle = document.getElementById("lessonTitle");
+    const rubricContainer = document.getElementById("rubricContainer");
+    const questionsContainer = document.getElementById("questionsContainer");
+
     document.getElementById("generateBtn").addEventListener("click", async () => {
       const file = document.getElementById("fileInput").files[0];
       const stream = document.getElementById("stream").value;
-      const status = document.getElementById("status");
-      const output = document.getElementById("output");
-      if (!file) return status.textContent = "⚠️ Please upload a file.";
+      if (!file) return status.textContent = "⚠️ Please upload a file first.";
 
       const form = new FormData();
       form.append("file", file);
       form.append("stream", stream);
+
       status.textContent = "⏳ Generating rubric...";
       output.classList.add("hidden");
 
@@ -49,13 +105,62 @@
         const res = await fetch("/generate", { method: "POST", body: form });
         if (!res.ok) throw new Error(`Server error: ${res.status}`);
         const data = await res.json();
-        status.textContent = "✅ Success!";
-        output.textContent = JSON.stringify(data, null, 2);
+
+        // Display lesson and rubric
+        lessonTitle.textContent = `${data.lesson} (${data.stream})`;
+        renderRubric(data.rubric);
+        renderQuestions(data.questions);
+
+        status.textContent = "✅ Generation successful!";
         output.classList.remove("hidden");
       } catch (err) {
+        console.error(err);
         status.textContent = "❌ " + err.message;
       }
     });
+
+    function renderRubric(rubric) {
+      if (!rubric || rubric.length === 0) {
+        rubricContainer.innerHTML = "<p>No rubric data available.</p>";
+        return;
+      }
+
+      let html = `<h3 class="rubric-title">Performance Rubric</h3>`;
+      html += `<table><thead><tr>
+        <th>Domain</th><th>Criterion</th><th>4</th><th>3</th><th>2</th><th>1</th>
+      </tr></thead><tbody>`;
+
+      rubric.forEach(r => {
+        html += `<tr>
+          <td>${r.domain}</td>
+          <td>${r.criterion}</td>
+          <td>${r["4"]}</td>
+          <td>${r["3"]}</td>
+          <td>${r["2"]}</td>
+          <td>${r["1"]}</td>
+        </tr>`;
+      });
+
+      html += `</tbody></table>`;
+      rubricContainer.innerHTML = html;
+    }
+
+    function renderQuestions(questions) {
+      if (!questions || questions.length === 0) {
+        questionsContainer.innerHTML = "<p>No questions generated.</p>";
+        return;
+      }
+
+      questionsContainer.innerHTML = questions.map((q, i) => `
+        <div class="question-block">
+          <div class="question-stem">${i + 1}. [${q.domain}] ${q.stem}</div>
+          <ul class="mt-1">
+            ${q.options.map(opt => `<li>${opt}</li>`).join("")}
+          </ul>
+          <div class="mt-2 text-green-600 text-sm">✔️ Correct answer: ${q.answer}</div>
+        </div>
+      `).join("");
+    }
   </script>
 </body>
 </html>
