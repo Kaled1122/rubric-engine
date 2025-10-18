@@ -1,45 +1,237 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Performance Engine</title>
-  <script src="https://cdn.tailwindcss.com"></script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Rubric Engine — Quantitative Lesson Generator</title>
+  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@3.4.1/dist/tailwind.min.css" rel="stylesheet">
+
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background-color: #f5f5f7;
+      color: #1d1d1f;
+      margin: 0;
+      padding: 40px;
+    }
+    .card {
+      background: white;
+      border-radius: 24px;
+      box-shadow: 0 8px 30px rgba(0,0,0,0.07);
+      padding: 32px;
+      max-width: 1000px;
+      margin: 0 auto;
+      transition: transform 0.2s ease;
+    }
+    .card:hover { transform: translateY(-2px); }
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      margin-top: 12px;
+      font-size: 14px;
+    }
+    th, td {
+      border: 1px solid #e5e5e5;
+      padding: 8px 10px;
+      text-align: left;
+    }
+    th {
+      background-color: #f9fafb;
+      font-weight: 600;
+    }
+    .lesson-card {
+      background: #fff;
+      border-radius: 16px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.05);
+      margin-top: 20px;
+      overflow: hidden;
+    }
+    .lesson-header {
+      cursor: pointer;
+      background: #eef2ff;
+      padding: 16px 20px;
+      font-weight: 600;
+      font-size: 1.1rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .lesson-header:hover { background: #e0e7ff; }
+    .lesson-body {
+      display: none;
+      padding: 20px;
+      background-color: #fafafa;
+    }
+    .rotate { transform: rotate(90deg); transition: transform 0.25s; }
+    .rotate.open { transform: rotate(270deg); }
+  </style>
 </head>
-<body class="bg-gray-100 text-gray-900">
-  <div class="max-w-3xl mx-auto p-6 mt-10 bg-white rounded-2xl shadow-lg">
-    <h1 class="text-3xl font-semibold text-center mb-6">📊 AI Performance Engine</h1>
 
-    <form id="rubricForm" class="space-y-4">
-      <input type="file" id="fileInput" name="file" accept=".pdf,.docx" class="block w-full text-sm">
-      <button type="submit" class="bg-blue-600 text-white px-5 py-2 rounded-md hover:bg-blue-700">
-        Generate Rubric
+<body>
+  <div class="card">
+    <h1 class="text-3xl font-bold text-center mb-8">Rubric Engine — Quantitative Lesson Generator</h1>
+
+    <div class="space-y-4">
+      <div>
+        <label class="block font-semibold mb-1">Select Stream</label>
+        <select id="stream" class="w-full border rounded-md p-2">
+          <option value="SEL">SEL (School of English Language)</option>
+          <option value="AW">AW (Academic Wing)</option>
+        </select>
+      </div>
+
+      <div>
+        <label class="block font-semibold mb-1">Upload Book Scope (.pdf / .docx / .txt)</label>
+        <input id="fileInput" type="file" accept=".pdf,.docx,.txt" class="w-full border rounded-md p-2">
+      </div>
+
+      <button id="generateBtn"
+        class="w-full bg-blue-600 text-white font-semibold p-3 rounded-lg hover:bg-blue-700 transition">
+        Generate Lesson Rubrics
       </button>
-    </form>
 
-    <p id="status" class="text-center mt-4"></p>
-    <div id="rubricOutput" class="mt-6 hidden"></div>
+      <div id="status" class="text-center text-sm mt-3 text-gray-700"></div>
+    </div>
+
+    <div id="output" class="hidden mt-10">
+      <h2 id="lessonTitle" class="text-2xl font-semibold mb-4"></h2>
+      <div id="rubricContainer"></div>
+    </div>
   </div>
 
   <script>
-    const backend = window.location.origin;
-    document.getElementById("rubricForm").onsubmit = async (e) => {
-      e.preventDefault();
+    const backendURL = "https://rubric-engine-production.up.railway.app/generate";  // ✅ Railway backend
+    const status = document.getElementById("status");
+    const output = document.getElementById("output");
+    const lessonTitle = document.getElementById("lessonTitle");
+    const rubricContainer = document.getElementById("rubricContainer");
+
+    // --------------------- GENERATE ---------------------
+    document.getElementById("generateBtn").addEventListener("click", async () => {
       const file = document.getElementById("fileInput").files[0];
-      if (!file) return alert("Please upload a file.");
+      const stream = document.getElementById("stream").value;
+      if (!file) return (status.textContent = "⚠️ Please upload a Book Scope file first.");
 
-      const formData = new FormData();
-      formData.append("file", file);
+      const form = new FormData();
+      form.append("file", file);
+      form.append("stream", stream);
 
-      const res = await fetch(`${backend}/generate_rubric`, { method: "POST", body: formData });
-      const data = await res.json();
-      if (data.error) return alert("❌ " + data.error);
+      status.textContent = "⏳ Processing lessons 1–4...";
+      output.classList.add("hidden");
+      rubricContainer.innerHTML = "";
 
-      document.getElementById("status").textContent = "✅ Rubric Generated!";
-      const container = document.getElementById("rubricOutput");
-      container.innerHTML = `<pre class='bg-gray-50 p-4 rounded-md text-sm'>${JSON.stringify(data.rubric, null, 2)}</pre>`;
-      container.classList.remove("hidden");
-    };
+      try {
+        const res = await fetch(backendURL, { method: "POST", body: form });
+        if (!res.ok) throw new Error(`Server error: ${res.status}`);
+        const data = await res.json();
+
+        if (!data.lessons || !Array.isArray(data.lessons)) throw new Error("Invalid backend response.");
+
+        lessonTitle.textContent = `Book Scope Rubrics (${data.stream})`;
+
+        data.lessons.forEach((lesson) => {
+          const lessonCard = document.createElement("div");
+          lessonCard.className = "lesson-card";
+
+          const header = document.createElement("div");
+          header.className = "lesson-header";
+          header.innerHTML = `
+            <span>Lesson ${lesson.lesson_number}: ${lesson.lesson_title}</span>
+            <span class="rotate">▶</span>
+          `;
+          header.addEventListener("click", () => {
+            const body = lessonCard.querySelector(".lesson-body");
+            const arrow = header.querySelector(".rotate");
+            const visible = body.style.display === "block";
+            body.style.display = visible ? "none" : "block";
+            arrow.classList.toggle("open", !visible);
+          });
+
+          const body = document.createElement("div");
+          body.className = "lesson-body";
+          body.innerHTML = `
+            ${renderRubric(lesson.rubric_overview)}
+            ${renderTasks(lesson.task_matrix)}
+            ${renderScoring(lesson.scoring_system)}
+          `;
+
+          lessonCard.appendChild(header);
+          lessonCard.appendChild(body);
+          rubricContainer.appendChild(lessonCard);
+        });
+
+        status.textContent = "✅ Rubrics generated successfully!";
+        output.classList.remove("hidden");
+        output.scrollIntoView({ behavior: "smooth" });
+      } catch (err) {
+        console.error(err);
+        status.textContent = "❌ " + err.message;
+      }
+    });
+
+    // --------------------- RENDERERS ---------------------
+    function renderRubric(rubric) {
+      if (!rubric || rubric.length === 0) return "<p>No rubric data found.</p>";
+
+      let html = `<h3 class="text-lg font-semibold mt-4">Domain Overview</h3>`;
+      html += `<table><thead><tr>
+        <th>Domain</th><th>Areas</th><th>Tasks</th>
+        <th>Pts/Task</th><th>Domain Max</th><th>Weight%</th><th>Description</th>
+      </tr></thead><tbody>`;
+
+      rubric.forEach(r => {
+        html += `<tr>
+          <td>${r.domain}</td>
+          <td>${Array.isArray(r.areas) ? r.areas.join(", ") : r.areas}</td>
+          <td>${r.tasks}</td>
+          <td>${r.points_per_task}</td>
+          <td>${r.domain_max}</td>
+          <td>${r.weight}</td>
+          <td>${r.description}</td>
+        </tr>`;
+      });
+
+      html += `</tbody></table>`;
+      return html;
+    }
+
+    function renderTasks(matrix) {
+      if (!matrix) return "";
+      let html = `<h3 class="text-lg font-semibold mt-6">Task Matrix</h3>`;
+      for (const [domain, tasks] of Object.entries(matrix)) {
+        html += `<h4 class="mt-3 font-semibold text-gray-700">${domain}</h4><ul class="list-disc ml-5 text-sm">`;
+        tasks.forEach(t => {
+          const desc = t.question || t.task || t.observation || "";
+          const area = t.area ? `<strong>${t.area}:</strong> ` : "";
+          html += `<li>${area}${desc}</li>`;
+        });
+        html += `</ul>`;
+      }
+      return html;
+    }
+
+    function renderScoring(scoring) {
+      if (!scoring) return "";
+      let html = `<h3 class="text-lg font-semibold mt-6">Scoring System</h3>`;
+      html += `<p><strong>Total Points:</strong> ${scoring.total_points}</p>`;
+
+      if (scoring.weights) {
+        html += `<p class="mt-1"><strong>Weights:</strong> `;
+        html += Object.entries(scoring.weights)
+          .map(([k, v]) => `${k}: ${(v * 100).toFixed(0)}%`)
+          .join(", ");
+        html += `</p>`;
+      }
+
+      if (scoring.bands) {
+        html += `<table class="mt-2"><thead><tr><th>Range</th><th>Band</th></tr></thead><tbody>`;
+        scoring.bands.forEach(b => {
+          html += `<tr><td>${b.range}</td><td>${b.label}</td></tr>`;
+        });
+        html += `</tbody></table>`;
+      }
+      return html;
+    }
   </script>
 </body>
 </html>
